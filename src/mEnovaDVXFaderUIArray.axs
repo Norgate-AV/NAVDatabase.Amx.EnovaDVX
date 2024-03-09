@@ -5,6 +5,7 @@ MODULE_NAME='mEnovaDVXFaderUIArray'	(
 
 (***********************************************************)
 #include 'NAVFoundation.ModuleBase.axi'
+#include 'NAVFoundation.Math.axi'
 #include 'NAVFoundation.UIUtils.axi'
 
 /*
@@ -48,8 +49,6 @@ DEFINE_DEVICE
 (***********************************************************)
 DEFINE_CONSTANT
 
-constant integer LEVEL_VOLUME = 1
-
 constant integer ADDRESS_LEVEL_PERCENTAGE	= 1
 
 constant integer LOCK_TOGGLE	= 301
@@ -67,13 +66,13 @@ DEFINE_TYPE
 (***********************************************************)
 DEFINE_VARIABLE
 
-volatile integer iLocked
+volatile integer locked
 
-volatile integer iLevelTouched
-volatile sinteger siRequestedLevel = -1
+volatile integer levelTouched
 
-volatile sinteger iLevel
-volatile sinteger iOldLevel
+volatile sinteger currentLevel
+
+volatile integer blinkerEnabled = false
 
 (***********************************************************)
 (*               LATCHING DEFINITIONS GO BELOW             *)
@@ -91,25 +90,33 @@ DEFINE_MUTUALLY_EXCLUSIVE
 (* EXAMPLE: DEFINE_FUNCTION <RETURN_TYPE> <NAME> (<PARAMETERS>) *)
 (* EXAMPLE: DEFINE_CALL '<NAME>' (<PARAMETERS>) *)
 
-define_function Update() {
-    iOldLevel = iLevel
+define_function Update(dev device[], sinteger level) {
+    stack_var integer x
+    stack_var integer length
 
-    if (siRequestedLevel >= 0) {
-        if (siRequestedLevel == iLevel) {
-            siRequestedLevel = -1
-        }
+    if (levelTouched) {
+        return
     }
-    else {
-        if (!iLevelTouched) {
-            stack_var integer x
 
-            for (x = 1; x <= length_array(dvTP); x++) {
-                send_level dvTP[x], LEVEL_VOLUME, iLevel
-            }
+    currentLevel = level
 
-            send_command dvTP, "'^TXT-', itoa(ADDRESS_LEVEL_PERCENTAGE), ',0,', itoa(NAVScaleValue(type_cast(iLevel), 255, 100, 0)), '%'"
-        }
+    length = length_array(device)
+
+    for (x = 1; x <= length; x++) {
+        send_level device[x], VOL_LVL, level
     }
+
+    NAVTextArray(device, ADDRESS_LEVEL_PERCENTAGE, '0', "itoa(NAVScaleValue(type_cast(level), 255, 100, 0)), '%'")
+}
+
+
+define_function LevelEventHandler(dev device[], tlevel level) {
+    if (!levelTouched || locked) {
+        return
+    }
+
+    NAVCommand(vdvObject, "'VOLUME-', itoa(level.value)")
+    NAVTextArray(device, ADDRESS_LEVEL_PERCENTAGE, '0', "itoa(NAVScaleValue(type_cast(level.value), 255, 100, 0)), '%'")
 }
 
 (***********************************************************)
@@ -118,28 +125,97 @@ define_function Update() {
 DEFINE_START {
 
 }
+
 (***********************************************************)
 (*                THE EVENTS GO BELOW                      *)
 (***********************************************************)
 DEFINE_EVENT
 
-level_event[vdvObject, LEVEL_VOLUME] {
-    iLevel = level.value
-    Update()
+level_event[vdvObject, VOL_LVL] {
+    Update(dvTP, level.value)
 }
 
 
 button_event[dvTP, 0] {
     push: {
-        to[vdvObject, button.input.channel]
+        switch (button.input.channel) {
+            case VOL_UP:
+            case VOL_DN: {
+                if (!locked) {
+                    to[vdvObject, button.input.channel]
+                }
+            }
+            case VOL_MUTE: {
+                to[vdvObject, button.input.channel]
+            }
+            case LOCK_TOGGLE: {
+                locked = !locked
+            }
+            case LOCK_ON: {
+                locked = true
+            }
+            case LOCK_OFF: {
+                locked = false
+            }
+            case LEVEL_TOUCH: {
+                levelTouched = true
+            }
+        }
+    }
+    release: {
+        switch (button.input.channel) {
+            case LEVEL_TOUCH: {
+                levelTouched = false
+            }
+        }
+    }
+}
+
+
+level_event[dvTP, VOL_LVL] {
+    LevelEventHandler(dvTP, level)
+}
+
+
+data_event[dvTP] {
+    online: {
+        Update(dvTP, currentLevel)
+    }
+}
+
+
+data_event[vdvObject] {
+    command: {
+        stack_var _NAVSnapiMessage message
+
+        NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
+                    NAVFormatStandardLogMessage(NAV_STANDARD_LOG_MESSAGE_TYPE_COMMAND_FROM,
+                                                data.device,
+                                                data.text))
+
+        NAVParseSnapiMessage(data.text, message)
+
+        switch (message.Header) {
+            case 'MUTE_BLINK': {
+                blinkerEnabled = atoi(NAVStringToBoolean(message.Parameter[1]))
+            }
+        }
     }
 }
 
 
 timeline_event[TL_NAV_FEEDBACK] {
-	[dvTP, VOL_MUTE]	= ([vdvObject, VOL_MUTE_FB])
-}
+    if (blinkerEnabled) {
+        [dvTP, VOL_MUTE]	= ([vdvObject, VOL_MUTE_FB] && NAVBlinker)
+    }
+    else {
+        [dvTP, VOL_MUTE]	= ([vdvObject, VOL_MUTE_FB])
+    }
 
+    [dvTP, LOCK_TOGGLE]	= (locked)
+    [dvTP, LOCK_ON]	= (locked)
+    [dvTP, LOCK_OFF]	= (!locked)
+}
 
 (***********************************************************)
 (*                     END OF PROGRAM                      *)
