@@ -4,6 +4,7 @@ MODULE_NAME='mEnovaDVX' 	(
                             )
 
 (***********************************************************)
+#DEFINE USING_NAV_MODULE_BASE_CALLBACKS
 #DEFINE USING_NAV_MODULE_BASE_PROPERTY_EVENT_CALLBACK
 #DEFINE USING_NAV_MODULE_BASE_PASSTHRU_EVENT_CALLBACK
 #DEFINE USING_NAV_LOGIC_ENGINE_EVENT_CALLBACK
@@ -139,14 +140,20 @@ define_function NAVLogicEngineEventCallback(_NAVLogicEngineEvent args) {
 
 #IF_DEFINED USING_NAV_MODULE_BASE_PROPERTY_EVENT_CALLBACK
 define_function NAVModulePropertyEventCallback(_NAVModulePropertyEvent event) {
-
+    if (event.Device != vdvObject) {
+        return
+    }
 }
 #END_IF
 
 
 #IF_DEFINED USING_NAV_MODULE_BASE_PASSTHRU_EVENT_CALLBACK
-define_function NAVModulePassthruEventCallback(char data[]) {
-    Send(data)
+define_function NAVModulePassthruEventCallback(_NAVModulePassthruEvent event) {
+    if (event.Device != vdvObject) {
+        return
+    }
+
+    Send(event.Payload)
 }
 #END_IF
 
