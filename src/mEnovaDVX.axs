@@ -11,6 +11,7 @@ MODULE_NAME='mEnovaDVX' 	(
 #include 'NAVFoundation.ModuleBase.axi'
 #include 'NAVFoundation.ArrayUtils.axi'
 #include 'NAVFoundation.LogicEngine.axi'
+#include 'NAVFoundation.Enova.axi'
 
 /*
  _   _                       _          ___     __
@@ -53,29 +54,30 @@ DEFINE_DEVICE
 (***********************************************************)
 DEFINE_CONSTANT
 
-constant integer MAX_LEVELS = 3
-constant char LEVELS[][NAV_MAX_CHARS]	= { 'ALL',
-                                            'VID',
-                                            'AUD' }
-
-constant char LEVEL_BYTES[][NAV_MAX_CHARS]	= { 'ALL',
-                                                'VIDEO',
-                                                'AUDIO' }
-
-constant integer MAX_OUTPUTS = 16
-
 (***********************************************************)
 (*              DATA TYPE DEFINITIONS GO BELOW             *)
 (***********************************************************)
 DEFINE_TYPE
+
+struct _Context {
+    integer output[NAV_ENOVA_SWITCH_LEVEL_COUNT][NAV_ENOVA_MAX_OUTPUTS]
+    char outputSwitchPending[NAV_ENOVA_SWITCH_LEVEL_COUNT][NAV_ENOVA_MAX_OUTPUTS]
+
+    integer portCount
+    integer inputCount[NAV_ENOVA_SWITCH_LEVEL_COUNT]
+    integer outputCount[NAV_ENOVA_SWITCH_LEVEL_COUNT]
+
+    char initialized
+}
+
 
 (***********************************************************)
 (*               VARIABLE DEFINITIONS GO BELOW             *)
 (***********************************************************)
 DEFINE_VARIABLE
 
-volatile integer output[MAX_LEVELS][MAX_OUTPUTS]
-volatile integer outputSwitchPending[MAX_LEVELS][MAX_OUTPUTS]
+volatile _Context context
+
 
 (***********************************************************)
 (*               LATCHING DEFINITIONS GO BELOW             *)
@@ -92,19 +94,15 @@ DEFINE_MUTUALLY_EXCLUSIVE
 (***********************************************************)
 (* EXAMPLE: DEFINE_FUNCTION <RETURN_TYPE> <NAME> (<PARAMETERS>) *)
 (* EXAMPLE: DEFINE_CALL '<NAME>' (<PARAMETERS>) *)
+
 define_function Send(char payload[]) {
     NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
                 NAVFormatStandardLogMessage(NAV_STANDARD_LOG_MESSAGE_TYPE_COMMAND_TO,
                                             dvPort,
                                             payload))
 
-    send_command dvPort, "payload"
+    NAVCommand(dvPort, "payload")
     wait 1 module.CommandBusy = false
-}
-
-
-define_function char[NAV_MAX_BUFFER] BuildSwitch(integer input, integer output, integer level) {
-    return "'CL', LEVEL_BYTES[level], 'I', itoa(input), 'O', itoa(output)"
 }
 
 
@@ -116,16 +114,16 @@ define_function Drive() {
         return
     }
 
-    for (x = 1; x <= MAX_OUTPUTS; x++) {
-        for (z = 1; z <= MAX_LEVELS; z++) {
-            if (!outputSwitchPending[z][x] || module.CommandBusy) {
+    for (z = 1; z <= NAV_SWITCH_LEVEL_COUNT; z++) {
+        for (x = 1; x <= context.outputCount[z]; x++) {
+            if (!context.outputSwitchPending[z][x] || module.CommandBusy) {
                 continue
             }
 
-            outputSwitchPending[z][x] = false
+            context.outputSwitchPending[z][x] = false
             module.CommandBusy = true
 
-            Send(BuildSwitch(output[z][x], x, z))
+            Send(NAVEnovaBuildSwitch(context.output[z][x], x, z))
         }
     }
 }
@@ -162,11 +160,134 @@ define_function NAVModulePassthruEventCallback(_NAVModulePassthruEvent event) {
 #END_IF
 
 
+define_function char GetDeviceIO() {
+    stack_var _NAVEnovaPortInfo info
+
+    if (!NAVEnovaGetPortInfo(info)) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR, "'mEnovaDVX => Error determining device I/O. Is this an Enova device?'")
+        return false
+    }
+
+    context.portCount = info.PortCount
+    context.inputCount[NAV_SWITCH_LEVEL_VID] = info.InputCount.Video
+    context.inputCount[NAV_SWITCH_LEVEL_AUD] = info.InputCount.Audio
+    context.inputCount[NAV_SWITCH_LEVEL_ALL] = info.InputCount.Video
+    context.outputCount[NAV_SWITCH_LEVEL_VID] = info.OutputCount.Video
+    context.outputCount[NAV_SWITCH_LEVEL_AUD] = info.OutputCount.Audio
+    context.outputCount[NAV_SWITCH_LEVEL_ALL] = info.OutputCount.Video
+
+    return true
+}
+
+
+define_function Init() {
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Initializing...'")
+
+    if (!GetDeviceIO()) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR, "'mEnovaDVX => Initialization failed. Unable to get device I/O'")
+        return
+    }
+
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Device has ', itoa(context.portCount), ' ports'")
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Device has ', itoa(context.inputCount[1]), ' video inputs'")
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Device has ', itoa(context.inputCount[2]), ' audio inputs'")
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Device has ', itoa(context.outputCount[1]), ' video outputs'")
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Device has ', itoa(context.outputCount[2]), ' audio outputs'")
+
+    set_length_array(context.output[NAV_SWITCH_LEVEL_VID], context.outputCount[NAV_SWITCH_LEVEL_VID])
+    set_length_array(context.output[NAV_SWITCH_LEVEL_AUD], context.outputCount[NAV_SWITCH_LEVEL_AUD])
+    set_length_array(context.output[NAV_SWITCH_LEVEL_ALL], context.outputCount[NAV_SWITCH_LEVEL_ALL])
+
+    set_length_array(context.outputSwitchPending[NAV_SWITCH_LEVEL_VID], context.outputCount[NAV_SWITCH_LEVEL_VID])
+    set_length_array(context.outputSwitchPending[NAV_SWITCH_LEVEL_AUD], context.outputCount[NAV_SWITCH_LEVEL_AUD])
+    set_length_array(context.outputSwitchPending[NAV_SWITCH_LEVEL_ALL], context.outputCount[NAV_SWITCH_LEVEL_ALL])
+
+    context.initialized = true
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Initialized'")
+
+    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Starting event loop'")
+    NAVLogicEngineStart()
+}
+
+
+define_function ContextInit(_Context context) {
+    NAVSetArrayInteger(context.output[NAV_SWITCH_LEVEL_VID], 0)
+    NAVSetArrayInteger(context.output[NAV_SWITCH_LEVEL_AUD], 0)
+    NAVSetArrayInteger(context.output[NAV_SWITCH_LEVEL_ALL], 0)
+
+    NAVSetArrayChar(context.outputSwitchPending[NAV_SWITCH_LEVEL_VID], false)
+    NAVSetArrayChar(context.outputSwitchPending[NAV_SWITCH_LEVEL_AUD], false)
+    NAVSetArrayChar(context.outputSwitchPending[NAV_SWITCH_LEVEL_ALL], false)
+
+    context.portCount = 0
+    context.inputCount[NAV_SWITCH_LEVEL_VID] = 0
+    context.inputCount[NAV_SWITCH_LEVEL_AUD] = 0
+    context.inputCount[NAV_SWITCH_LEVEL_ALL] = 0
+    context.outputCount[NAV_SWITCH_LEVEL_VID] = 0
+    context.outputCount[NAV_SWITCH_LEVEL_AUD] = 0
+    context.outputCount[NAV_SWITCH_LEVEL_ALL] = 0
+
+    context.initialized = false
+}
+
+
+define_function ObjectSwitchCommandEvent(_NAVSnapiMessage message) {
+    stack_var integer input
+    stack_var integer output
+    stack_var integer level
+
+    if (message.ParameterCount < 2) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR, "'mEnovaDVX => Invalid switch command. The SWITCH command must be followed by at least 2 arguments'")
+        return
+    }
+
+    if (message.ParameterCount < 3) {
+        NAVErrorLog(NAV_LOG_LEVEL_WARNING, "'mEnovaDVX => No switch level specified. Defaulting to ALL switch level'")
+        level = NAV_SWITCH_LEVEL_ALL
+    }
+    else {
+        level = NAVFindInArrayString(NAV_SWITCH_LEVELS, upper_string(message.Parameter[3]))
+
+        if (!level) {
+            NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                        "'mEnovaDVX => Invalid switch command. The switch level is invalid. Valid levels are: ', NAVArrayJoinString(NAV_SWITCH_LEVELS, ', ')")
+            NAVErrorLog(NAV_LOG_LEVEL_WARNING, "'mEnovaDVX => Defaulting to ALL switch level'")
+
+            level = NAV_SWITCH_LEVEL_ALL
+        }
+    }
+
+    input = atoi(message.Parameter[1])
+    output = atoi(message.Parameter[2])
+
+    if (input > context.inputCount[level]) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "'mEnovaDVX => Invalid switch command. Input number out of range.'")
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "'mEnovaDVX => Valid input range for switch level ', NAVEnovaGetSwitchLevel(level), ' is 0-', itoa(context.inputCount[level])")
+
+        return
+    }
+
+    if (output > context.outputCount[level]) {
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "'mEnovaDVX => Invalid switch command. Output number out of range.'")
+        NAVErrorLog(NAV_LOG_LEVEL_ERROR,
+                    "'mEnovaDVX => Valid output range for switch level ', NAVEnovaGetSwitchLevel(level), ' is 1-', itoa(context.outputCount[level])")
+
+        return
+    }
+
+    context.output[level][output] = input
+    context.outputSwitchPending[level][output] = true
+}
+
+
 (***********************************************************)
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
 DEFINE_START {
-
+    ContextInit(context)
 }
 
 (***********************************************************)
@@ -176,7 +297,7 @@ DEFINE_EVENT
 
 data_event[dvPort] {
     online: {
-        NAVLogicEngineStart()
+        Init()
     }
     command: {
         [vdvObject, DEVICE_COMMUNICATING] = true
@@ -208,14 +329,7 @@ data_event[vdvObject] {
 
         switch (message.Header) {
             case NAV_MODULE_EVENT_SWITCH: {
-                stack_var integer level
-
-                level = NAVFindInArrayString(LEVELS, message.Parameter[3])
-
-                if (!level) { level = NAV_SWITCH_LEVEL_VID }
-
-                output[level][atoi(message.Parameter[2])] = atoi(message.Parameter[1])
-                outputSwitchPending[level][atoi(message.Parameter[2])] = true
+                ObjectSwitchCommandEvent(message)
             }
         }
     }
