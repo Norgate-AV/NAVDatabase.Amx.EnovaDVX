@@ -144,6 +144,31 @@ function Get-GitHubRelease {
     }
 }
 
+function Get-GitHubReleases {
+    param (
+        [string]$Owner,
+        [string]$Repo
+    )
+
+    $apiUrl = "https://api.github.com/repos/$Owner/$Repo/releases"
+    Write-Host "Fetching releases..."
+
+    $releases = Invoke-RestMethod -Uri $apiUrl -UseBasicParsing
+
+    # Extract version numbers and sort them
+    $versions = @($releases | ForEach-Object {
+        # Try to extract version from tag_name
+        if ($_.tag_name -match 'v?(\d+\.\d+\.\d+)') {
+            @{
+                Version = $matches[1]
+                TagName = $_.tag_name
+            }
+        }
+    } | Where-Object { $null -ne $_.Version })
+
+    return $versions
+}
+
 function Find-GenlinxRc {
     param (
         [string]$Path
@@ -201,25 +226,139 @@ function New-GenlinxRc {
     $contents | ConvertTo-Json -Depth 10 | Out-File -FilePath "$Path/.genlinxrc.json"
 }
 
+function Compare-Versions {
+    param (
+        [string]$Version1,
+        [string]$Version2
+    )
+
+    $v1Parts = $Version1.Split('.') | ForEach-Object { [int]$_ }
+    $v2Parts = $Version2.Split('.') | ForEach-Object { [int]$_ }
+
+    for ($i = 0; $i -lt 3; $i++) {
+        if ($v1Parts[$i] -gt $v2Parts[$i]) {
+            return 1
+        }
+
+        if ($v1Parts[$i] -lt $v2Parts[$i]) {
+            return -1
+        }
+    }
+
+    return 0
+}
+
+function Get-CompatibleVersion {
+    param (
+        [string]$RequiredVersion,
+        [string]$Prefix,
+        [array]$AvailableVersions
+    )
+
+    Write-Host "Looking for compatible updates..."
+
+    # Sort versions in descending order first
+    $sortedVersions = $AvailableVersions | Sort-Object {
+        # Split version into parts and cast each to integer for proper numeric sorting
+        $parts = $_.Version.Split('.')
+        [int]$parts[0] * 1000000 + [int]$parts[1] * 1000 + [int]$parts[2]
+    } -Descending
+
+    $reqParts = $RequiredVersion.Split('.') | ForEach-Object { [int]$_ }
+    $compatible = $null
+
+    foreach ($version in $sortedVersions) {
+        $comparison = Compare-Versions $version.Version $RequiredVersion
+
+        # If we hit a lower version, we can stop checking
+        if ($comparison -lt 0) {
+            break
+        }
+
+        $verParts = $version.Version.Split('.') | ForEach-Object { [int]$_ }
+
+        $isCompatible = switch ($Prefix) {
+            '^' { $true }  # We already know it's >= required version
+            '~' { $verParts[0] -eq $reqParts[0] }  # Just check major version match
+            default { $comparison -eq 0 }  # Exact match only
+        }
+
+        if ($isCompatible) {
+            $compatible = $version
+            break  # We can stop here since versions are sorted
+        }
+    }
+
+    if ($null -eq $compatible) {
+        return $null
+    }
+
+    return $compatible
+}
+
+
 function Get-Version {
     param (
         [string]$Version
     )
 
-    if ($Version -notmatch "^\d+\.\d+\.\d+$") {
+    Write-Host "Resolving version: $Version..."
+    $requirement = Get-VersionRequirement -Version $Version
+
+    # For exact versions, just return the cleaned version
+    if (!$requirement.Prefix) {
+        return $requirement.Version
+    }
+
+    # Get available releases
+    $releases = Get-GitHubReleases -Owner $repoInfo.Owner -Repo $repoInfo.Repo
+
+    # Find the best matching version
+    $bestMatch = Get-CompatibleVersion -RequiredVersion $requirement.Version `
+                                     -Prefix $requirement.Prefix `
+                                     -AvailableVersions $releases
+
+    if (!$bestMatch) {
+        throw "No compatible updates found for $Version"
+    }
+
+    if ($bestMatch.Version -ne $requirement.Version) {
+        Write-Host "Found compatible update: $($bestMatch.Version)"
+    }
+
+    Write-Host "Using version: $($bestMatch.Version)"
+    return $bestMatch.Version
+}
+
+function Get-VersionRequirement {
+    param (
+        [string]$Version
+    )
+
+    $requirement = @{
+        Original = $Version
+        Prefix = $null
+        Version = $null
+    }
+
+    if ($Version.StartsWith("^")) {
+        $requirement.Prefix = "^"
+        $requirement.Version = $Version.TrimStart("^")
+    }
+    elseif ($Version.StartsWith("~")) {
+        $requirement.Prefix = "~"
+        $requirement.Version = $Version.TrimStart("~")
+    }
+    else {
+        $requirement.Version = $Version
+    }
+
+    # Validate version format
+    if ($requirement.Version -notmatch "^\d+\.\d+\.\d+$") {
         throw "Invalid version format: $Version"
     }
 
-    # If the version starts with ^, this means "this version or higher"
-    # In this case, we need to find out if there is a newer release that we can use
-    # If there is, we should use that version instead
-
-
-    # If the version starts with ~, this means "this version or higher, but not the next major version"
-    # If it doesn't start with ^ or ~, it's an exact version
-
-    $version = $Version -replace "^v", ""
-    return $version
+    return $requirement
 }
 
 try {
@@ -254,35 +393,29 @@ try {
 
     foreach ($dependency in $manifest.dependencies) {
         Write-Host
-        Write-Host "Processing dependency from $($dependency.url)..."
+        Write-Host "Processing dependency $($dependency.url)..."
 
         try {
-            # Parse the version string
-            # It should be valid semver
-            # If the version starts with ^, this means "this version or higher"
-            # If the version starts with ~, this means "this version or higher, but not the next major version"
-            # If it doesn't start with ^ or ~, it's an exact version
-            # if ($dependency.version -notmatch "^\d+\.\d+\.\d+$") {
-            #     throw "Invalid version format: $($dependency.version)"
-            # }
-
             $repoInfo = Get-GitHubRepoInfo -url $dependency.url
-            $packagePath = Join-Path $vendorPath "$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)"
+
+            $version = Get-Version -Version $dependency.version
+
+            $packagePath = Join-Path $vendorPath "$($repoInfo.Owner)/$($repoInfo.Repo)/$($version)"
             if (-not (Test-Path $packagePath)) {
                 New-Item -ItemType Directory -Path $packagePath | Out-Null
             }
             else {
-                Write-Host "Dependency $($repoInfo.Repo)@$($dependency.version) already installed"
+                Write-Host "Dependency $($repoInfo.Repo)@$($version) already installed"
                 continue
             }
 
             Get-GitHubRelease `
                 -owner $repoInfo.Owner `
                 -repo $repoInfo.Repo `
-                -version $dependency.version `
+                -version $version `
                 -destinationPath $packagePath
 
-            Write-Host "Successfully installed $($repoInfo.Repo)@$($dependency.version)"
+            Write-Host "Successfully installed $($repoInfo.Repo)@$($version)"
 
             if (!$genlinxrc) {
                 continue
@@ -292,7 +425,7 @@ try {
                 -Path $genlinxrc `
                 -OutDir $OutDir `
                 -DependencyUrl $repoInfo.Repo `
-                -DependencyVersion $dependency.version
+                -DependencyVersion $version
         }
         catch {
             Write-Error "Failed to process dependency $($dependency.url): $_"
