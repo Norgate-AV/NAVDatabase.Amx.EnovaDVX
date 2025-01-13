@@ -44,6 +44,33 @@ param (
     $OutDir = "vendor"
 )
 
+function Get-ConfigConverter {
+    param (
+        [string]$Path,
+        [switch]$To
+    )
+
+    switch ([System.IO.Path]::GetExtension($Path)) {
+        ".json" {
+            if ($To) {
+                { process { $_ | ConvertTo-Json -Depth 10 } }
+            }
+            else {
+                { process { $_ | ConvertFrom-Json } }
+            }
+        }
+        { $_ -in ".yaml", ".yml" } {
+            if ($To) {
+                { process { $_ | ConvertTo-Yaml } }
+            }
+            else {
+                { process { $_ | ConvertFrom-Yaml } }
+            }
+        }
+        default { throw "Unsupported file extension: $Path" }
+    }
+}
+
 function Get-GitHubRepoInfo {
     param (
         [string]$url
@@ -79,7 +106,6 @@ function Get-GitHubRelease {
 
             Write-Host "Downloading $file..."
             Invoke-WebRequest -Uri $fileUrl -OutFile $filePath
-            Write-Host "Downloaded $file successfully"
 
             # Check for a matching checksum file at the same url
             # Download and verify the checksum if it exists
@@ -87,19 +113,15 @@ function Get-GitHubRelease {
             $checksumPath = "$filePath.sha256"
 
             if (Invoke-WebRequest -Uri $checksumUrl -UseBasicParsing -Method Head -ErrorAction SilentlyContinue) {
-                Write-Host "Downloading checksum..."
-                Invoke-WebRequest -Uri $checksumUrl -OutFile $checksumPath
-                Write-Host "Downloaded checksum successfully"
-
                 Write-Host "Verifying checksum..."
+                Invoke-WebRequest -Uri $checksumUrl -OutFile $checksumPath
+
                 $checksum = Get-Content -Path $checksumPath
                 $hash = Get-FileHash -Path $filePath -Algorithm SHA256
 
                 if ($hash.Hash -ne $checksum) {
                     throw "Checksum verification failed for $file"
                 }
-
-                Write-Host "Checksum verified successfully"
             }
 
             # Delete checksum file
@@ -109,8 +131,9 @@ function Get-GitHubRelease {
 
             # Extract archive
             Write-Host "Extracting $file..."
+            $global:ProgressPreference = "SilentlyContinue"
             Expand-Archive -Path $filePath -DestinationPath $destinationPath
-            Write-Host "Extracted $file successfully"
+            $global:ProgressPreference = "Continue"
 
             # Delete archive
             Remove-Item -Path $filePath
@@ -119,6 +142,84 @@ function Get-GitHubRelease {
     catch {
         throw "Failed to download release: $_"
     }
+}
+
+function Find-GenlinxRc {
+    param (
+        [string]$Path
+    )
+
+    $genlinxrcPath = Get-ChildItem -Path $Path -Recurse -File -Filter ".genlinxrc.*" `
+        -ErrorAction SilentlyContinue | Select-Object -First 1
+
+    return $genlinxrcPath
+}
+
+function Update-GenlinxRc {
+    param (
+        [string]$Path,
+        [string]$OutDir,
+        [string]$DependencyUrl,
+        [string]$DependencyVersion
+    )
+
+    if (-not (Test-Path $Path)) {
+        throw "Invalid path: $Path"
+    }
+
+    Write-Host "Updating .genlinxrc..."
+
+    $convertFrom = Get-ConfigConverter -Path $Path
+    $convertTo = Get-ConfigConverter -Path $Path -To
+
+    $genlinxrc = Get-Content -Path $Path -Raw | & $convertFrom
+
+    $genlinxrc.build.nlrc.includePath += "./$OutDir/$DependencyUrl/$DependencyVersion"
+    $genlinxrc.build.nlrc.modulePath += "./$OutDir/$DependencyUrl/$DependencyVersion"
+
+    # Ensure the paths are unique
+    $genlinxrc.build.nlrc.includePath = @($genlinxrc.build.nlrc.includePath | Select-Object -Unique)
+    $genlinxrc.build.nlrc.modulePath = @($genlinxrc.build.nlrc.modulePath | Select-Object -Unique)
+
+    $genlinxrc | & $convertTo | Out-File -FilePath $Path -NoNewline
+}
+
+function New-GenlinxRc {
+    param (
+        [string]$Path
+    )
+
+    $contents = @{
+        build = @{
+            nlrc = @{
+                includePath = @()
+                modulePath = @()
+            }
+        }
+    }
+
+    $contents | ConvertTo-Json -Depth 10 | Out-File -FilePath "$Path/.genlinxrc.json"
+}
+
+function Get-Version {
+    param (
+        [string]$Version
+    )
+
+    if ($Version -notmatch "^\d+\.\d+\.\d+$") {
+        throw "Invalid version format: $Version"
+    }
+
+    # If the version starts with ^, this means "this version or higher"
+    # In this case, we need to find out if there is a newer release that we can use
+    # If there is, we should use that version instead
+
+
+    # If the version starts with ~, this means "this version or higher, but not the next major version"
+    # If it doesn't start with ^ or ~, it's an exact version
+
+    $version = $Version -replace "^v", ""
+    return $version
 }
 
 try {
@@ -133,10 +234,38 @@ try {
 
     $vendorPath = Join-Path $PSScriptRoot $OutDir
 
+    $genlinxrc = Find-GenlinxRc -Path $Path
+    if (!$genlinxrc) {
+        Write-Host
+        Write-Host "Creating new .genlinxrc file..."
+        New-GenlinxRc -Path $Path
+
+        $genlinxrc = Find-GenlinxRc -Path $Path
+    }
+
+    if ($genlinxrc.Extension -match "yml|yaml") {
+        if (-not (Get-Module -Name powershell-yaml -ListAvailable)) {
+            Write-Host "Installing powershell-yaml module..."
+            Install-Module -Name powershell-yaml -Scope CurrentUser -Force
+        }
+
+        Import-Module -Name powershell-yaml
+    }
+
     foreach ($dependency in $manifest.dependencies) {
-        Write-Host "`nProcessing dependency from $($dependency.url)..."
+        Write-Host
+        Write-Host "Processing dependency from $($dependency.url)..."
 
         try {
+            # Parse the version string
+            # It should be valid semver
+            # If the version starts with ^, this means "this version or higher"
+            # If the version starts with ~, this means "this version or higher, but not the next major version"
+            # If it doesn't start with ^ or ~, it's an exact version
+            # if ($dependency.version -notmatch "^\d+\.\d+\.\d+$") {
+            #     throw "Invalid version format: $($dependency.version)"
+            # }
+
             $repoInfo = Get-GitHubRepoInfo -url $dependency.url
             $packagePath = Join-Path $vendorPath "$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)"
             if (-not (Test-Path $packagePath)) {
@@ -153,19 +282,17 @@ try {
                 -version $dependency.version `
                 -destinationPath $packagePath
 
-            Write-Host "Updating .genlinxrc..."
-            $genlinxrc = Get-Content -Path "$Path/.genlinxrc.json" -Raw | ConvertFrom-Json
-
-            if ($genlinxrc.build.nlrc.includePath -notcontains "./$OutDir/$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)") {
-                $genlinxrc.build.nlrc.includePath += "./$OutDir/$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)"
-            }
-
-            if ($genlinxrc.build.nlrc.modulePath -notcontains "./$OutDir/$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)") {
-                $genlinxrc.build.nlrc.modulePath += "./$OutDir/$($repoInfo.Owner)/$($repoInfo.Repo)/$($dependency.version)"
-            }
-
-            $genlinxrc | ConvertTo-Json -Depth 10 | Out-File -FilePath "$Path/.genlinxrc.json" -NoNewline
             Write-Host "Successfully installed $($repoInfo.Repo)@$($dependency.version)"
+
+            if (!$genlinxrc) {
+                continue
+            }
+
+            Update-Genlinxrc `
+                -Path $genlinxrc `
+                -OutDir $OutDir `
+                -DependencyUrl $repoInfo.Repo `
+                -DependencyVersion $dependency.version
         }
         catch {
             Write-Error "Failed to process dependency $($dependency.url): $_"

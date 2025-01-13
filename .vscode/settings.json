@@ -37,5 +37,8 @@
     "editor.codeActionsOnSave": {
         "source.fixAll.markdownlint": "explicit"
     },
-    "github-actions.workflows.pinned.workflows": [".github/workflows/main.yml"]
+    "github-actions.workflows.pinned.workflows": [".github/workflows/main.yml"],
+    "[powershell]": {
+        "editor.defaultFormatter": "ms-vscode.powershell"
+    }
 }
