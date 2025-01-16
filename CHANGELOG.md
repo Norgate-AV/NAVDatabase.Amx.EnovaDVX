@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.1](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.1.0...v1.1.1) (2025-01-16)
+
+### 🐛 Bug Fixes
+
+- fix release scripts ([dfab84a](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/commit/dfab84aba0ca5ae6b5ba41f72c418682c6a4756d))
+
 ## [1.1.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.0.0...v1.1.0) (2025-01-09)
 
 ### 🌟 Features
