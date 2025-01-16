@@ -17,12 +17,12 @@
         "url": "https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/issues"
     },
     "engines": {
-        "node": ">=18"
+        "node": ">=20"
     },
     "scripts": {
         "build": "pwsh ./build.ps1",
         "commit": "git-cz",
-        "prepare": "husky install",
+        "prepare": "husky",
         "pretty:fix": "prettier --write .",
         "doctoc": "doctoc --title '## Contents 📖' README.md",
         "contrib:add": "all-contributors add",
