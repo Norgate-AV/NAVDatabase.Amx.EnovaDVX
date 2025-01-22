@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.1.2...v1.2.0) (2025-01-22)
+
+### 🌟 Features
+
+- decrease ramp interval to 200ms ([a4ed61f](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/commit/a4ed61f20cfcef769275304ebe470a8fe92c7a24))
+
 ## [1.1.2](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.1.1...v1.1.2) (2025-01-16)
 
 ### 🐛 Bug Fixes
