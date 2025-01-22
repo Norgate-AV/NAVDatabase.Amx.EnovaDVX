@@ -54,7 +54,7 @@ DEFINE_CONSTANT
 
 constant long TL_LEVEL_RAMP = 1
 
-constant long TL_LEVEL_RAMP_INTERVAL[] = { 500 }
+constant long TL_LEVEL_RAMP_INTERVAL[] = { 200 }
 
 (***********************************************************)
 (*              DATA TYPE DEFINITIONS GO BELOW             *)
