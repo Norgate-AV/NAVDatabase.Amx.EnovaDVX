@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.2.0...v1.2.1) (2025-02-15)
+
+### 🚀 Performance
+
+- remove unnecessary logging ([5a5ea95](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/commit/5a5ea95be828fcd17f94a73a1a95cb2d49edf61b))
+
 ## [1.2.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.1.2...v1.2.0) (2025-01-22)
 
 ### 🌟 Features
