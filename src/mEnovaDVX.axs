@@ -96,11 +96,6 @@ DEFINE_MUTUALLY_EXCLUSIVE
 (* EXAMPLE: DEFINE_CALL '<NAME>' (<PARAMETERS>) *)
 
 define_function Send(char payload[]) {
-    NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
-                NAVFormatStandardLogMessage(NAV_STANDARD_LOG_MESSAGE_TYPE_COMMAND_TO,
-                                            dvPort,
-                                            payload))
-
     NAVCommand(dvPort, "payload")
     wait 1 module.CommandBusy = false
 }
@@ -302,11 +297,6 @@ data_event[dvPort] {
     command: {
         [vdvObject, DEVICE_COMMUNICATING] = true
         [vdvObject, DATA_INITIALIZED] = true
-
-        NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
-                    NAVFormatStandardLogMessage(NAV_STANDARD_LOG_MESSAGE_TYPE_COMMAND_FROM,
-                                                data.device,
-                                                data.text))
     }
 }
 
@@ -319,11 +309,6 @@ data_event[vdvObject] {
     }
     command: {
         stack_var _NAVSnapiMessage message
-
-        NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
-                    NAVFormatStandardLogMessage(NAV_STANDARD_LOG_MESSAGE_TYPE_COMMAND_FROM,
-                                                data.device,
-                                                data.text))
 
         NAVParseSnapiMessage(data.text, message)
 
