@@ -68,13 +68,11 @@ DEFINE_TYPE
 (***********************************************************)
 DEFINE_VARIABLE
 
-volatile integer locked
+volatile char locked
 
-volatile integer levelTouched = false
+volatile char levelTouched = false
 
 volatile sinteger currentLevel
-
-volatile integer blinkerEnabled = false
 
 volatile char label[NAV_MAX_CHARS] = ''
 
@@ -148,6 +146,17 @@ define_function Sync(sinteger level) {
 }
 
 
+define_function UpdateFeedback() {
+    if (!muteInhibited) {
+        [dvTP, VOL_MUTE]    = ([vdvObject[1], VOL_MUTE_FB])
+    }
+
+    [dvTP, LOCK_TOGGLE]	= (locked)
+    [dvTP, LOCK_ON]	= (locked)
+    [dvTP, LOCK_OFF]	= (!locked)
+}
+
+
 (***********************************************************)
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
@@ -181,12 +190,15 @@ button_event[dvTP, 0] {
             }
             case LOCK_TOGGLE: {
                 locked = !locked
+                UpdateFeedback()
             }
             case LOCK_ON: {
                 locked = true
+                UpdateFeedback()
             }
             case LOCK_OFF: {
                 locked = false
+                UpdateFeedback()
             }
             case LEVEL_TOUCH: {
                 levelTouched = true
@@ -215,9 +227,6 @@ data_event[vdvObject[1]] {
         switch (message.Header) {
             case 'PROPERTY': {
                 switch (message.Parameter[1]) {
-                    case 'MUTE_BLINK': {
-                        blinkerEnabled = atoi(NAVStringToBoolean(message.Parameter[2]))
-                    }
                     case 'LABEL': {
                         label = message.Parameter[2]
                         Update(dvTP, currentLevel, label)
@@ -269,19 +278,13 @@ data_event[dvTP] {
 }
 
 
-timeline_event[TL_NAV_FEEDBACK] {
-    if (!muteInhibited) {
-        if (!blinkerEnabled) {
-            [dvTP, VOL_MUTE]    = ([vdvObject[1], VOL_MUTE_FB])
-        }
-        else {
-            [dvTP, VOL_MUTE]    = ([vdvObject[1], VOL_MUTE_FB] && NAVBlinker)
-        }
+channel_event[vdvObject[1], VOL_MUTE_FB] {
+    on: {
+        UpdateFeedback()
     }
-
-    [dvTP, LOCK_TOGGLE]	= (locked)
-    [dvTP, LOCK_ON]	= (locked)
-    [dvTP, LOCK_OFF]	= (!locked)
+    off: {
+        UpdateFeedback()
+    }
 }
 
 

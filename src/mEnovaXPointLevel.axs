@@ -8,6 +8,7 @@ MODULE_NAME='mEnovaXPointLevel'	(
 #DEFINE USING_NAV_ENOVA_AUDIO_XPOINT_EVENT_CALLBACK
 #include 'NAVFoundation.ModuleBase.axi'
 #include 'NAVFoundation.Math.axi'
+#include 'NAVFoundation.TimelineUtils.axi'
 #include 'NAVFoundation.Enova.axi'
 #include 'NAVFoundation.EnovaEvents.axi'
 
@@ -117,10 +118,12 @@ define_function NAVEnovaAudioXPointEventCallback(_NAVEnovaAudioXpointEventArgs a
 
     if (args.Level == NAV_ENOVA_AUDIO_XPOINT_LEVEL_MUTE) {
         context.mute = true
+        UpdateFeedback()
         return
     }
 
     context.mute = false
+    UpdateFeedback()
     context.level = args.Level
 
     NAVErrorLog(NAV_LOG_LEVEL_DEBUG,
@@ -158,6 +161,7 @@ define_function ContextInit(_Context context) {
 
     context.level = 0
     context.mute = false
+    UpdateFeedback()
 
     context.initialized = false
 }
@@ -308,6 +312,11 @@ define_function ObjectChannelEvent(tchannel channel) {
 }
 
 
+define_function UpdateFeedback() {
+    [vdvObject, VOL_MUTE_FB] = (context.mute)
+}
+
+
 (***********************************************************)
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
@@ -397,11 +406,6 @@ channel_event[vdvObject, 0] {
 
 timeline_event[TL_LEVEL_RAMP] {
     RampLevel()
-}
-
-
-timeline_event[TL_NAV_FEEDBACK] {
-    [vdvObject, VOL_MUTE_FB] = (context.mute)
 }
 
 
