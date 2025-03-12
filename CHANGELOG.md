@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.0.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.3.0...v2.0.0) (2025-03-12)
+
+### ⚠ BREAKING CHANGES
+
+- Internal blinking logic has been removed from all UI modules. If you wish to have
+  blinking feedback for a mute button this must now be implemented outside the module.
+
+### 🌟 Features
+
+- update to support NAVFoundation.Amx v2.0.0 ([aa2a269](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/commit/aa2a269857a9a1e472f96220896395a6e8e6d9ac))
+
 ## [1.3.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v1.2.1...v1.3.0) (2025-02-17)
 
 ### 🌟 Features
