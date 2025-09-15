@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.1.0](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v2.0.1...v2.1.0) (2025-09-15)
+
+### 🌟 Features
+
+- update for NAVFoundation v3+ ([0c462db](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/commit/0c462dbbf067e416ac01315fde08d2fb1e6cc021))
+
 ## [2.0.1](https://github.com/Norgate-AV/NAVDatabase.Amx.EnovaDVX/compare/v2.0.0...v2.0.1) (2025-03-31)
 
 ### 🐛 Bug Fixes
