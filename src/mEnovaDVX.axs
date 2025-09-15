@@ -7,10 +7,9 @@ MODULE_NAME='mEnovaDVX' 	(
 #DEFINE USING_NAV_MODULE_BASE_CALLBACKS
 #DEFINE USING_NAV_MODULE_BASE_PROPERTY_EVENT_CALLBACK
 #DEFINE USING_NAV_MODULE_BASE_PASSTHRU_EVENT_CALLBACK
-#DEFINE USING_NAV_LOGIC_ENGINE_EVENT_CALLBACK
 #include 'NAVFoundation.ModuleBase.axi'
 #include 'NAVFoundation.ArrayUtils.axi'
-#include 'NAVFoundation.LogicEngine.axi'
+#include 'NAVFoundation.TimelineUtils.axi'
 #include 'NAVFoundation.Enova.axi'
 
 /*
@@ -53,6 +52,12 @@ DEFINE_DEVICE
 (*               CONSTANT DEFINITIONS GO BELOW             *)
 (***********************************************************)
 DEFINE_CONSTANT
+
+constant long TL_DRIVE    = 1
+
+constant long TL_DRIVE_INTERVAL[] = { 200 }
+
+
 
 (***********************************************************)
 (*              DATA TYPE DEFINITIONS GO BELOW             *)
@@ -124,17 +129,6 @@ define_function Drive() {
 }
 
 
-#IF_DEFINED USING_NAV_LOGIC_ENGINE_EVENT_CALLBACK
-define_function NAVLogicEngineEventCallback(_NAVLogicEngineEvent args) {
-    switch (args.Name) {
-        case NAV_LOGIC_ENGINE_EVENT_ACTION: {
-            Drive()
-        }
-    }
-}
-#END_IF
-
-
 #IF_DEFINED USING_NAV_MODULE_BASE_PROPERTY_EVENT_CALLBACK
 define_function NAVModulePropertyEventCallback(_NAVModulePropertyEvent event) {
     if (event.Device != vdvObject) {
@@ -200,8 +194,10 @@ define_function Init() {
     context.initialized = true
     NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Initialized'")
 
-    NAVErrorLog(NAV_LOG_LEVEL_DEBUG, "'mEnovaDVX => Starting event loop'")
-    NAVLogicEngineStart()
+    NAVTimelineStart(TL_DRIVE,
+                        TL_DRIVE_INTERVAL,
+                        TIMELINE_ABSOLUTE,
+                        TIMELINE_REPEAT)
 }
 
 
@@ -275,6 +271,8 @@ define_function ObjectSwitchCommandEvent(_NAVSnapiMessage message) {
 
     context.output[level][output] = input
     context.outputSwitchPending[level][output] = true
+
+    Drive()
 }
 
 
@@ -293,6 +291,9 @@ DEFINE_EVENT
 data_event[dvPort] {
     online: {
         Init()
+    }
+    offline: {
+        NAVTimelineStop(TL_DRIVE)
     }
     command: {
         [vdvObject, DEVICE_COMMUNICATING] = true
@@ -319,6 +320,9 @@ data_event[vdvObject] {
         }
     }
 }
+
+
+timeline_event[TL_DRIVE] { Drive() }
 
 
 (***********************************************************)
