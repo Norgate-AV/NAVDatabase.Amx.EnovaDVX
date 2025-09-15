@@ -81,6 +81,7 @@ struct _Context {
 (***********************************************************)
 DEFINE_VARIABLE
 
+volatile _NAVModule module
 volatile _Context context
 
 
@@ -280,6 +281,7 @@ define_function ObjectSwitchCommandEvent(_NAVSnapiMessage message) {
 (*                STARTUP CODE GOES BELOW                  *)
 (***********************************************************)
 DEFINE_START {
+    NAVModuleInit(module)
     ContextInit(context)
 }
 
